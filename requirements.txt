@@ -1,0 +1,7 @@
+pandas
+pinecone
+python-dotenv
+sentence-transformers
+fastapi
+google-generativeai
+uvicorn
