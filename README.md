@@ -11,30 +11,6 @@ Campaign Lens is a Python RAG backend for exploring fundraising campaign data. I
 - Uses Gemini for grounded answers when retrieval context is needed
 - Supports recommendation flows based on campaign similarity
 
-## Project Structure
-
-```text
-app/
-  config.py                  Runtime config and shared paths
-  embeddings.py              Embedding helpers
-  main.py                    FastAPI app
-  pinecone_store.py          Pinecone query and metadata helpers
-  rag_service.py             Retrieval, QA, and recommendations
-  schemas.py                 Pydantic request/response models
-data/
-  campaigns.csv              Raw campaign dataset
-  campaigns_enriched.csv     Enriched dataset
-  campaign_search_chunks.jsonl Search chunks used for indexing
-scripts/
-  prepare_campaigns_dataset.py          Data cleaning and chunk generation
-  upload_campaign_chunks_to_pinecone.py Pinecone indexing script
-  backfill_quality_metadata.py          Metadata update utility
-  example_rag_usage.py                  Local usage examples
-  test.py                               Manual Pinecone query helper
-tests/
-  test_rag_backend.py       Unit tests
-```
-
 ## Requirements
 
 - Python 3.11+
@@ -117,51 +93,6 @@ Once running:
 - API root: `http://127.0.0.1:8000/`
 - Swagger docs: `http://127.0.0.1:8000/docs`
 
-## API Endpoints
-
-### `POST /retrieve`
-
-Retrieves the most relevant campaign chunks for a query.
-
-Example request:
-
-```json
-{
-  "query": "medical campaigns for patients in 2025",
-  "filters": {
-    "theme": "medical",
-    "year": "2025"
-  },
-  "top_k": 3
-}
-```
-
-### `POST /answer`
-
-Retrieves chunks and returns a grounded answer with cited source IDs.
-
-Example request:
-
-```json
-{
-  "question": "What are the lowest funded campaigns in Syria?",
-  "top_k": 5
-}
-```
-
-### `POST /recommendations`
-
-Returns campaigns similar to a seed campaign based on indexed chunk vectors.
-
-Example request:
-
-```json
-{
-  "campaign_id": 1,
-  "top_k": 3,
-  "seed_chunk_limit": 2
-}
-```
 
 ## Helper Scripts
 
