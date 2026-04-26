@@ -33,6 +33,16 @@ build/
 dist/
 *.egg-info/
 .eggs/
+frontend/dist/
+
+# Frontend dependencies and caches
+node_modules/
+frontend/node_modules/
+*.tsbuildinfo
+frontend/.vite/
+frontend/vite.config.js
+frontend/vite.config.d.ts
+npm-debug.log*
 
 # Local editor / OS files
 .vscode/
