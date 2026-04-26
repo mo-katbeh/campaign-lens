@@ -3,6 +3,9 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
+from fastapi.testclient import TestClient
+
+from app.main import app
 from app import rag_service
 from app.embeddings import embed_query
 from app.pinecone_store import translate_filters
@@ -30,6 +33,22 @@ class FilterTranslationTests(unittest.TestCase):
                 "record_quality_score": {"$gte": 80.0},
             },
         )
+
+
+class ApiMiddlewareTests(unittest.TestCase):
+    def test_cors_allows_local_vite_dev_server(self) -> None:
+        client = TestClient(app)
+
+        response = client.options(
+            "/retrieve",
+            headers={
+                "Origin": "http://127.0.0.1:5173",
+                "Access-Control-Request-Method": "POST",
+            },
+        )
+
+        self.assertIn(response.status_code, {200, 204})
+        self.assertEqual(response.headers.get("access-control-allow-origin"), "http://127.0.0.1:5173")
 
 
 class EmbeddingTests(unittest.TestCase):

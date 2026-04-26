@@ -148,6 +148,15 @@ def _parse_location_mentions(raw_value: Any) -> list[str]:
     return [str(item) for item in parsed if str(item).strip()]
 
 
+def _parse_float(value: Any) -> float | None:
+    if value in {None, ""}:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 @lru_cache(maxsize=1)
 def load_campaign_analytics_rows() -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
@@ -155,14 +164,15 @@ def load_campaign_analytics_rows() -> list[dict[str, Any]]:
         reader = csv.DictReader(handle)
         for row in reader:
             campaign_id = row.get("campaign_id")
-            funding_ratio = row.get("funding_ratio")
-            if not campaign_id or funding_ratio in {None, ""}:
+            funding_ratio_value = _parse_float(row.get("funding_ratio"))
+            if not campaign_id or funding_ratio_value is None:
                 continue
             try:
                 campaign_id_value = int(campaign_id)
-                funding_ratio_value = float(funding_ratio)
             except ValueError:
                 continue
+
+            quality_value = _parse_float(row.get("record_quality_score"))
 
             rows.append(
                 {
@@ -172,7 +182,7 @@ def load_campaign_analytics_rows() -> list[dict[str, Any]]:
                     "theme": str(row.get("campaign_theme") or "").strip() or None,
                     "beneficiary": str(row.get("beneficiary_group") or "").strip() or None,
                     "funding_ratio": funding_ratio_value,
-                    "quality": float(row["record_quality_score"]) if row.get("record_quality_score") else None,
+                    "quality": quality_value,
                     "funding_status": str(row.get("funding_status") or "").strip() or None,
                     "location_mentions": _parse_location_mentions(row.get("location_mentions")),
                     "search_chunks": row.get("search_chunks") or "[]",
@@ -199,6 +209,29 @@ def _extract_locations_from_question(question: str) -> list[str]:
         if f" {normalized_location} " in normalized_question:
             matched_locations.append(display_location)
     return sorted(set(matched_locations))
+
+
+def _extract_gemini_text(response: Any) -> str | None:
+    direct_text = getattr(response, "text", None)
+    if isinstance(direct_text, str) and direct_text.strip():
+        return direct_text
+
+    candidates = getattr(response, "candidates", None)
+    if not isinstance(candidates, list) or not candidates:
+        return None
+
+    content = getattr(candidates[0], "content", None)
+    if content is None:
+        return None
+
+    parts = getattr(content, "parts", None)
+    if not isinstance(parts, list) or not parts:
+        return None
+
+    part_text = getattr(parts[0], "text", None)
+    if isinstance(part_text, str) and part_text.strip():
+        return part_text
+    return None
 
 
 def _build_analytics_chunk(row: dict[str, Any]) -> RetrievedChunk:
@@ -333,13 +366,7 @@ def answer_question(question: str, filters: dict | None = None, top_k: int = DEF
 )
     except Exception as exc:
         raise RuntimeError(f"Gemini grounded answer generation failed: {exc}") from exc
-    answer_text = getattr(response, "text", None)
-
-    if not answer_text and hasattr(response, "candidates"):
-        try:
-            answer_text = response.candidates[0].content.parts[0].text
-        except Exception:
-            answer_text = None
+    answer_text = _extract_gemini_text(response)
 
     if not answer_text:
         answer_text = "The answer cannot be determined from the retrieved campaign data."

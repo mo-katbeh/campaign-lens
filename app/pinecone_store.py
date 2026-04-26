@@ -35,6 +35,15 @@ FILTER_OPERATORS = {
 }
 
 
+def _parse_float(value: Any) -> float | None:
+    if value in {None, ""}:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _batched(items: Sequence[str], batch_size: int) -> Iterable[list[str]]:
     for start in range(0, len(items), batch_size):
         yield list(items[start : start + batch_size])
@@ -139,10 +148,10 @@ def get_campaign_quality_map() -> dict[int, float]:
         reader = csv.DictReader(handle)
         for row in reader:
             campaign_id = row.get("campaign_id")
-            quality = row.get("record_quality_score")
-            if not campaign_id or quality in {None, ""}:
+            quality_value = _parse_float(row.get("record_quality_score"))
+            if not campaign_id or quality_value is None:
                 continue
-            quality_map[int(campaign_id)] = float(quality)
+            quality_map[int(campaign_id)] = quality_value
     return quality_map
 
 
