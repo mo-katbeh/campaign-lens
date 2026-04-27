@@ -36,7 +36,7 @@ PINECONE_NAMESPACE=campaigns
 PINECONE_CLOUD=aws
 PINECONE_REGION=us-east-1
 
-LOCAL_EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
+LOCAL_EMBEDDING_MODEL=BAAI/bge-large-en-v1.5
 NORMALIZE_EMBEDDINGS=true
 
 GEMINI_API_KEY=your-gemini-key
@@ -64,6 +64,8 @@ python scripts/prepare_campaigns_dataset.py
 ### 2. Upload chunks to Pinecone
 
 This script loads the prepared JSONL chunks, generates embeddings locally, ensures the Pinecone index exists, and upserts vectors.
+
+Changing the embedding model invalidates existing Pinecone vectors. Re-run the full indexing step after switching models so indexing and query-time embeddings stay compatible.
 
 Run:
 
@@ -112,3 +114,4 @@ python -m unittest discover -s tests -v
 - The repo currently includes prepared data files in `data/` for local experimentation.
 - Answer generation depends on Gemini, but some ranking-style questions are answered directly from the enriched analytics data.
 - The first embedding run may download the local transformer model, so internet access may be required once.
+- `BAAI/bge-large-en-v1.5` is used for both indexing and querying; query embeddings add the BGE retrieval instruction, while chunk embeddings do not.
