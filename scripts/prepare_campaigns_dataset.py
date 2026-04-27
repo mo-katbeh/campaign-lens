@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import html
 import json
 import re
 import unicodedata
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable, TypeAlias, cast
 
 import pandas as pd
+from pandas._libs.missing import NAType
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,6 +19,8 @@ SEARCH_CHUNKS_PATH = ROOT / "data" / "campaign_search_chunks.jsonl"
 DEFAULT_IMAGE_URL = "/og_default.jpeg"
 ROUNDING_TOLERANCE = 50.0
 CHUNK_MAX_CHARS = 700
+
+TextOrNA: TypeAlias = str | NAType
 
 UNICODE_REPLACEMENTS = str.maketrans(
     {
@@ -30,6 +34,18 @@ UNICODE_REPLACEMENTS = str.maketrans(
         "\u00a0": " ",
     }
 )
+
+HTML_LINE_BREAK_TAG_PATTERN = re.compile(r"(?is)<\s*br\s*/?\s*>")
+HTML_LIST_ITEM_OPEN_TAG_PATTERN = re.compile(r"(?is)<\s*li\b[^>]*>")
+HTML_BLOCK_TAG_PATTERN = re.compile(
+    r"(?is)<\s*/?\s*(?:address|article|aside|blockquote|div|dl|fieldset|figcaption|figure|footer|form|h[1-6]|header|hr|li|main|nav|ol|p|section|table|tr|ul)\b[^>]*>"
+)
+HTML_TAG_PATTERN = re.compile(r"(?is)<[^>]+>")
+SUSPICIOUS_MOJIBAKE_CHARS = ("Ã", "Â", "â", "ð", "�")
+COMMON_MOJIBAKE_REPLACEMENTS = {
+    "âœ…": "✅",
+    "ðŸ’—": "💗",
+}
 
 THEME_PATTERNS: dict[str, list[str]] = {
     "medical": [
@@ -209,43 +225,98 @@ LOCATION_PATTERNS: dict[str, list[str]] = {
 }
 
 
-def normalize_text(value: object) -> object:
-    if pd.isna(value):
+def _is_missing(value: object) -> bool:
+    return bool(pd.isna(cast(Any, value)))
+
+
+def _normalize_string(text: str, *, preserve_newlines: bool = False) -> str:
+    normalized = unicodedata.normalize("NFKC", text)
+    normalized = normalized.translate(UNICODE_REPLACEMENTS)
+    normalized = re.sub(r"[\u200b-\u200f\ufeff]", " ", normalized)
+    if preserve_newlines:
+        normalized = normalized.replace("\r\n", "\n").replace("\r", "\n")
+        normalized = re.sub(r"[^\S\n]+", " ", normalized)
+        normalized = re.sub(r" *\n *", "\n", normalized)
+        normalized = re.sub(r"\n{3,}", "\n\n", normalized)
+        return normalized.strip()
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return normalized
+
+
+def normalize_text(value: object) -> TextOrNA:
+    if _is_missing(value):
         return pd.NA
 
-    text = unicodedata.normalize("NFKC", str(value))
-    text = text.translate(UNICODE_REPLACEMENTS)
-    text = re.sub(r"[\u200b-\u200f\ufeff]", " ", text)
-    text = re.sub(r"\s+", " ", text).strip()
+    text = _normalize_string(str(value))
     return text if text else pd.NA
 
 
-def normalize_key(value: object) -> object:
+def normalize_key(value: object) -> TextOrNA:
     text = normalize_text(value)
-    if pd.isna(text):
+    if not isinstance(text, str):
         return pd.NA
 
-    normalized = str(text).casefold()
+    normalized = text.casefold()
     normalized = re.sub(r"[^\w\s]", " ", normalized)
     normalized = re.sub(r"\s+", " ", normalized).strip()
     return normalized if normalized else pd.NA
 
 
-def build_series_key(title_normalized: object) -> object:
-    if pd.isna(title_normalized):
+def build_series_key(title_normalized: object) -> TextOrNA:
+    if not isinstance(title_normalized, str):
         return pd.NA
 
-    series_key = re.sub(r"\b(?:19|20)\d{2}\b", " ", str(title_normalized))
+    series_key = re.sub(r"\b(?:19|20)\d{2}\b", " ", title_normalized)
     series_key = re.sub(r"\b\d+\b", " ", series_key)
     series_key = re.sub(r"\s+", " ", series_key).strip()
     return series_key if series_key else title_normalized
 
 
-def join_text_parts(parts: Iterable[object]) -> object:
-    cleaned_parts = [str(part).strip() for part in parts if not pd.isna(part) and str(part).strip()]
+def join_text_parts(parts: Iterable[object]) -> TextOrNA:
+    cleaned_parts = [str(part).strip() for part in parts if not _is_missing(part) and str(part).strip()]
     if not cleaned_parts:
         return pd.NA
     return "\n\n".join(cleaned_parts)
+
+
+def _suspicious_text_score(text: str) -> int:
+    return sum(text.count(char) for char in SUSPICIOUS_MOJIBAKE_CHARS)
+
+
+def _fix_mojibake_text(text: str) -> str:
+    original_text = text
+    for broken, repaired in COMMON_MOJIBAKE_REPLACEMENTS.items():
+        text = text.replace(broken, repaired)
+    if text != original_text:
+        return text
+
+    if not any(char in text for char in SUSPICIOUS_MOJIBAKE_CHARS):
+        return text
+
+    try:
+        repaired = text.encode("latin-1").decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return text
+
+    return repaired if _suspicious_text_score(repaired) < _suspicious_text_score(text) else text
+
+
+def clean_scraped_text(value: object) -> TextOrNA:
+    if _is_missing(value):
+        return pd.NA
+
+    text = _fix_mojibake_text(html.unescape(str(value)))
+    text = HTML_LINE_BREAK_TAG_PATTERN.sub("\n", text)
+    text = HTML_LIST_ITEM_OPEN_TAG_PATTERN.sub("\n- ", text)
+    text = HTML_BLOCK_TAG_PATTERN.sub("\n\n", text)
+    text = HTML_TAG_PATTERN.sub(" ", text)
+    text = html.unescape(text)
+    text = _normalize_string(text, preserve_newlines=True)
+    return text if text else pd.NA
+
+
+def build_search_text(parts: Iterable[object]) -> TextOrNA:
+    return join_text_parts(clean_scraped_text(part) for part in parts)
 
 
 def classify_amount_consistency(row: pd.Series) -> str:
@@ -262,7 +333,7 @@ def classify_amount_consistency(row: pd.Series) -> str:
 
 
 def derive_year_confidence(row: pd.Series) -> str:
-    if pd.isna(row["year_detected"]):
+    if _is_missing(row["year_detected"]):
         return "unknown"
     if row["date_status"] == "certain" and row["year_source"] == "publishing_date":
         return "high"
@@ -272,7 +343,7 @@ def derive_year_confidence(row: pd.Series) -> str:
 
 
 def derive_year_label(row: pd.Series) -> str:
-    if pd.isna(row["year_detected"]):
+    if _is_missing(row["year_detected"]):
         return "unknown"
     if row["year_confidence"] in {"high", "medium"}:
         return str(int(row["year_detected"]))
@@ -285,7 +356,7 @@ def compute_keyword_score(text: str, keywords: list[str]) -> int:
 
 
 def classify_from_patterns(text: object, patterns: dict[str, list[str]], default: str) -> str:
-    if pd.isna(text):
+    if _is_missing(text):
         return default
 
     text_value = str(text)
@@ -300,7 +371,7 @@ def classify_from_patterns(text: object, patterns: dict[str, list[str]], default
 
 
 def extract_locations(text: object) -> str:
-    if pd.isna(text):
+    if _is_missing(text):
         return "[]"
 
     lowered = str(text).casefold()
@@ -312,7 +383,7 @@ def extract_locations(text: object) -> str:
 
 
 def split_into_chunks(text: object, max_chars: int = CHUNK_MAX_CHARS) -> list[str]:
-    if pd.isna(text):
+    if _is_missing(text):
         return []
 
     normalized_text = re.sub(r"\n{3,}", "\n\n", str(text)).strip()
@@ -468,7 +539,7 @@ def validate_outputs(df: pd.DataFrame, chunk_records: list[dict[str, object]]) -
     if not chunk_records:
         raise ValueError("Search chunks output is empty")
 
-    if not any("cancer" in record["text"].casefold() for record in chunk_records):
+    if not any("cancer" in str(record["text"]).casefold() for record in chunk_records):
         raise ValueError("Expected cancer-related search chunk not found")
 
     if not any(record["year_label"] == "unknown" for record in chunk_records):
@@ -492,11 +563,11 @@ def prepare_campaigns_dataset() -> tuple[pd.DataFrame, list[dict[str, object]]]:
     df["scrape_date"] = df["scraped_at"].dt.date.astype("string")
 
     df["campaign_text"] = df.apply(
-        lambda row: join_text_parts([row["title"], row["overview_text"], row["details_text"]]),
+        lambda row: build_search_text([row["title"], row["overview_text"], row["details_text"]]),
         axis=1,
     )
     df["campaign_text_short"] = df.apply(
-        lambda row: join_text_parts([row["title"], row["overview_text"]]),
+        lambda row: build_search_text([row["title"], row["overview_text"]]),
         axis=1,
     )
 
