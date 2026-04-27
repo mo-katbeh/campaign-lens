@@ -5,13 +5,12 @@ from typing import Any
 
 from pinecone import Pinecone
 
+from app.embeddings import embed_query, get_embedding_dimension
 from upload_campaign_chunks_to_pinecone import (
     INDEX_NAME,
     LOCAL_EMBEDDING_MODEL,
     NAMESPACE,
-    embed_text_batch,
     get_index_dimension,
-    load_local_model,
     require_env,
 )
 
@@ -37,12 +36,7 @@ def query_index(
     filter_dict: dict[str, Any] | None,
 ) -> Any:
     pinecone_api_key = require_env("PINECONE_API_KEY")
-    model = load_local_model()
-
-    if hasattr(model, "get_embedding_dimension"):
-        query_dimension = model.get_embedding_dimension()
-    else:
-        query_dimension = model.get_sentence_embedding_dimension()
+    query_dimension = get_embedding_dimension()
 
     pc = Pinecone(api_key=pinecone_api_key)
     index_dimension = get_index_dimension(pc, INDEX_NAME)
@@ -53,7 +47,7 @@ def query_index(
         )
 
     index = pc.Index(INDEX_NAME)
-    query_vector = embed_text_batch(model, [query])[0]
+    query_vector = embed_query(query)
 
     query_kwargs: dict[str, Any] = {
         "vector": query_vector,

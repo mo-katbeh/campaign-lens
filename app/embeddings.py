@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from functools import lru_cache
 from typing import Sequence
 
 from scripts.upload_campaign_chunks_to_pinecone import embed_text_batch, load_local_model
 
+BGE_QUERY_INSTRUCTION = "Represent this sentence for searching relevant passages: "
 
-@lru_cache(maxsize=1)
 def get_embedding_model():
     return load_local_model()
 
@@ -30,7 +29,9 @@ def embed_query(query: str) -> list[float]:
     cleaned_query = query.strip()
     if not cleaned_query:
         raise ValueError("Query must not be empty.")
-    embeddings = embed_texts([cleaned_query])
+    # BGE recommends an instruction on queries only so the query embedding is aligned
+    # with passage embeddings for cosine retrieval, while document/chunk text stays raw.
+    embeddings = embed_texts([f"{BGE_QUERY_INSTRUCTION}{cleaned_query}"])
     if not embeddings:
         raise RuntimeError("Failed to create an embedding for the query.")
     return embeddings[0]
