@@ -28,7 +28,7 @@ def main() -> None:
     quality_map = get_campaign_quality_map()
 
     updated = 0
-    index = None if args.dry_run else get_index()
+    index = get_index() if not args.dry_run else None
 
     for current_campaign_id, chunk_ids in campaign_chunk_ids.items():
         if args.campaign_id is not None and current_campaign_id != args.campaign_id:
@@ -47,6 +47,8 @@ def main() -> None:
             if args.dry_run:
                 print(f"[dry-run] chunk_id={chunk_id} campaign_id={current_campaign_id} quality={quality_score}")
             else:
+                if index is None:
+                    raise RuntimeError("Pinecone index is unavailable while dry-run is disabled.")
                 update_kwargs = {
                     "id": str(chunk_id),
                     "set_metadata": {"record_quality_score": float(quality_score)},
