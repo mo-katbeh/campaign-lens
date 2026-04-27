@@ -3,8 +3,9 @@ from __future__ import annotations
 import json
 import math
 import os
+from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol, cast
 
 from pinecone import Pinecone, ServerlessSpec
 
@@ -18,6 +19,19 @@ try:
 except ImportError:
     SentenceTransformer = None
 
+class EmbeddingModel(Protocol):
+    def encode(
+        self,
+        texts: list[str],
+        batch_size: int,
+        normalize_embeddings: bool,
+        show_progress_bar: bool,
+    ) -> Any: ...
+
+    def get_embedding_dimension(self) -> int: ...
+
+    def get_sentence_embedding_dimension(self) -> int: ...
+
 
 ROOT = Path(__file__).resolve().parents[1]
 CHUNKS_PATH = ROOT / "data" / "campaign_search_chunks.jsonl"
@@ -28,11 +42,14 @@ if load_dotenv is not None:
 INDEX_NAME = os.getenv("PINECONE_INDEX_NAME", "campaigns-index")
 PINECONE_CLOUD = os.getenv("PINECONE_CLOUD", "aws")
 PINECONE_REGION = os.getenv("PINECONE_REGION", "us-east-1")
-LOCAL_EMBEDDING_MODEL = os.getenv("LOCAL_EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+# Re-indexing is required whenever this embedding model changes because existing
+# Pinecone vectors become incompatible with newly generated embeddings.
+LOCAL_EMBEDDING_MODEL = os.getenv("LOCAL_EMBEDDING_MODEL", "BAAI/bge-large-en-v1.5")
 EMBED_BATCH_SIZE = int(os.getenv("EMBED_BATCH_SIZE", "64"))
 UPSERT_BATCH_SIZE = int(os.getenv("UPSERT_BATCH_SIZE", "100"))
 NAMESPACE = os.getenv("PINECONE_NAMESPACE")
-NORMALIZE_EMBEDDINGS = os.getenv("NORMALIZE_EMBEDDINGS", "true").strip().lower() == "true"
+# Keep vectors normalized so Pinecone cosine similarity compares compatible embeddings.
+NORMALIZE_EMBEDDINGS = True
 
 
 def require_env(name: str) -> str:
@@ -69,7 +86,8 @@ def load_chunk_records(path: Path) -> list[dict[str, Any]]:
     return records
 
 
-def load_local_model() -> SentenceTransformer:
+@lru_cache(maxsize=1)
+def load_local_model() -> EmbeddingModel:
     if SentenceTransformer is None:
         raise RuntimeError(
             "sentence-transformers is not installed. Run `python -m pip install -r requirements.txt` first."
@@ -77,7 +95,7 @@ def load_local_model() -> SentenceTransformer:
 
     try:
         print(f"Loading local embedding model: {LOCAL_EMBEDDING_MODEL}")
-        return SentenceTransformer(LOCAL_EMBEDDING_MODEL)
+        return cast(EmbeddingModel, SentenceTransformer(LOCAL_EMBEDDING_MODEL))
     except Exception as exc:
         raise RuntimeError(
             "Failed to load the local embedding model. "
@@ -118,7 +136,7 @@ def ensure_index(pc: Pinecone, index_name: str, expected_dimension: int) -> None
     )
 
 
-def embed_text_batch(model: SentenceTransformer, texts: list[str]) -> list[list[float]]:
+def embed_text_batch(model: EmbeddingModel, texts: list[str]) -> list[list[float]]:
     embeddings = model.encode(
         texts,
         batch_size=len(texts),
@@ -168,7 +186,7 @@ def sanitize_metadata(record: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in cleaned_metadata.items() if value is not None}
 
 
-def build_pinecone_vectors(model: SentenceTransformer, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def build_pinecone_vectors(model: EmbeddingModel, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     vectors: list[dict[str, Any]] = []
     total_batches = (len(records) + EMBED_BATCH_SIZE - 1) // EMBED_BATCH_SIZE
 

@@ -2,6 +2,7 @@ pandas
 pinecone
 python-dotenv
 sentence-transformers
+FlagEmbedding
 fastapi
 google-generativeai
 uvicorn
