@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field
 class RetrievedChunk(BaseModel):
     chunk_id: str
     score: float | None = None
+    rerank_score: float | None = None
+    final_score: float | None = None
     campaign_id: int | None = None
     title: str | None = None
     theme: str | None = None
