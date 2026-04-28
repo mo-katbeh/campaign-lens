@@ -4,6 +4,7 @@ import os
 import sys
 import types
 import unittest
+from typing import cast
 from unittest.mock import Mock, patch
 
 from fastapi.testclient import TestClient
@@ -109,13 +110,14 @@ class ScrapedTextCleaningTests(unittest.TestCase):
         cleaned = prepare_campaigns_dataset.clean_scraped_text(raw_text)
 
         self.assertIsInstance(cleaned, str)
-        self.assertNotIn("<p>", cleaned)
-        self.assertNotIn("<strong>", cleaned)
-        self.assertNotIn("<li>", cleaned)
-        self.assertIn("You are not alone.", cleaned)
-        self.assertIn("Your donation helps.", cleaned)
-        self.assertIn("- Chair", cleaned)
-        self.assertIn("- Hope", cleaned)
+        cleaned_text = cast(str, cleaned)
+        self.assertNotIn("<p>", cleaned_text)
+        self.assertNotIn("<strong>", cleaned_text)
+        self.assertNotIn("<li>", cleaned_text)
+        self.assertIn("You are not alone.", cleaned_text)
+        self.assertIn("Your donation helps.", cleaned_text)
+        self.assertIn("- Chair", cleaned_text)
+        self.assertIn("- Hope", cleaned_text)
 
     def test_clean_scraped_text_repairs_common_mojibake_sequences(self) -> None:
         raw_text = "<p>Support \xe2\u0153\u2026 now \xf0\u0178\u2019\u2014</p>"
