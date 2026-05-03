@@ -109,9 +109,9 @@ export default function App() {
                     <TabsTrigger value="answer" className="justify-start sm:justify-center">
                       Ask Question
                     </TabsTrigger>
-                    {/* <TabsTrigger value="recommendations" className="justify-start sm:justify-center">
+                    <TabsTrigger value="recommendations" className="justify-start sm:justify-center">
                       Recommendations
-                    </TabsTrigger> */}
+                    </TabsTrigger>
                   </TabsList>
 
                   <TabsContent value="search">
